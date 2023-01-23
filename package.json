@@ -1,0 +1,21 @@
+{
+  "name": "valscoreboard",
+  "version": "0.0.1",
+  "description": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node ."
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.7.1",
+    "dotenv": "^16.0.3",
+    "undici": "^5.15.2"
+  },
+  "devDependencies": {
+    "eslint": "^8.32.0"
+  }
+}
