@@ -1,7 +1,6 @@
 # ValScoreboard
 
 ## Development
-1. Run `npm install`
-2. Create a `.env` file to hold tokens
-3. If needed, re-register all commands to the specified Discord server with `node deploy-commands.js`
-4. Run the bot with `node run start`
+1. Run `npm install` in the root directory
+2. Create a `.env` file in the root directory to store tokens
+3. Run `npm run start` to (re)register all commands in all Discord servers and start the bot
