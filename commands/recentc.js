@@ -31,23 +31,19 @@ export async function execute(interaction) {
 
 	await interaction.deferReply();
 
-	// TODO - maybe use Promise.all for efficiency
-	const reqAcc = await request(`https://api.henrikdev.xyz/valorant/v1/account/${username}/${tag}`);
-	const resAcc = await reqAcc.body.json();
-	if (resAcc.status != 200) {
-		await interaction.editReply({ content: `There was an error while executing this command: ${resAcc.errors[0].message}` });
-		return;
+	const accountRequest = request(`https://api.henrikdev.xyz/valorant/v1/account/${username}/${tag}`);
+	const matchesRequest = request(`https://api.henrikdev.xyz/valorant/v3/matches/${region}/${username}/${tag}?filter=competitive`);
+	const [accountMessage, matchesMessage] = await Promise.all([accountRequest, matchesRequest]);
+	if (accountMessage.statusCode != 200) {
+		throw new Error(`Reply from account API returned status code ${accountMessage.statusCode}`);
 	}
-	const dataAcc = resAcc.data;
-	const puuid = dataAcc.puuid;
-
-	const req = await request(`https://api.henrikdev.xyz/valorant/v3/matches/${region}/${username}/${tag}?filter=competitive`);
-	const res = await req.body.json();
-	if (res.status != 200) {
-		await interaction.editReply({ content: `There was an error while executing this command: ${res.errors[0].message}` });
-		return;
+	if (matchesMessage.statusCode != 200) {
+		throw new Error(`Reply from matches API returned status code ${matchesMessage.statusCode}`);
 	}
-	const match = res.data[0];
+	const [accountJson, matchesJson] = await Promise.all([accountMessage.body.json(), matchesMessage.body.json()]);
+	const account = accountJson.data;
+	const puuid = account.puuid;
+	const match = matchesJson.data[0];
 
 	const userTeam = match.players.all_players.find(p => p.puuid == puuid).team;
 	const winningTeam = match.teams.red.rounds_won > match.teams.blue.rounds_won ? 'Red' : match.teams.blue.rounds_won > match.teams.red.rounds_won ? 'Blue' : 'Tie';
@@ -56,7 +52,7 @@ export async function execute(interaction) {
 		.setColor(0xcd7dff)
 		.setAuthor({ name: 'Most Recent Competitive Match' })
 		.setTitle(`${username}#${tag}`)
-		.setThumbnail(dataAcc.card.small)
+		.setThumbnail(account.card.small)
 		.addFields(
 			{ name: 'Map', value: match.metadata.map, inline: true },
 			{ name: 'Server', value: match.metadata.cluster, inline: true },

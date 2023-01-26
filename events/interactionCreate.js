@@ -1,4 +1,4 @@
-import { Events } from 'discord.js';
+import { Events, inlineCode } from 'discord.js';
 
 export const name = Events.InteractionCreate;
 export async function execute(interaction) {
@@ -14,8 +14,10 @@ export async function execute(interaction) {
 	}
 
 	try {
+		// TODO - maybe do initial defer reply here
 		await command.execute(interaction);
 	} catch (error) {
+		await interaction.editReply({ content: `Oh no! An error occurred while executing this command: ${inlineCode(error.message)}` });
 		console.error(`Error executing ${interaction.commandName}`);
 		console.error(error);
 	}
