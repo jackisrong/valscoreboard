@@ -1,5 +1,7 @@
-import { EmbedBuilder, SlashCommandBuilder } from 'discord.js';
+import { AttachmentBuilder, EmbedBuilder, SlashCommandBuilder } from 'discord.js';
 import { request } from 'undici';
+import { drawCanvas } from '../canvas/match.js';
+import { msToLengthStr } from '../utils.js';
 
 export const data = new SlashCommandBuilder()
 	.setName('recent')
@@ -11,56 +13,59 @@ export const data = new SlashCommandBuilder()
 	.addStringOption(option =>
 		option.setName('tag')
 			.setDescription('Player\'s tagline after the hashtag (ex. 0000)')
-			.setRequired(true));
+			.setRequired(true))
+	.addStringOption(option =>
+		option.setName('region')
+			.setDescription('Player\'s region (default is Americas)')
+			.addChoices(
+				{ name: 'Americas', value: 'na' },
+				{ name: 'Europe', value: 'eu' },
+				{ name: 'Asia-Pacific', value: 'ap' },
+				{ name: 'Korea', value: 'kr' },
+			));
 
 export async function execute(interaction) {
 	const username = interaction.options.getString('username');
 	const tag = interaction.options.getString('tag');
+	const region = interaction.options.getString('region') ?? 'na';
 
 	await interaction.deferReply();
 
-	const reqAcc = await request(`https://api.henrikdev.xyz/valorant/v1/account/${username}/${tag}`);
-	const resAcc = await reqAcc.body.json();
-	if (resAcc.status != 200) {
-		await interaction.editReply({ content: `There was an error while executing this command: ${resAcc.errors[0].message}` });
-		return;
+	const accountRequest = request(`https://api.henrikdev.xyz/valorant/v1/account/${username}/${tag}`);
+	const matchesRequest = request(`https://api.henrikdev.xyz/valorant/v3/matches/${region}/${username}/${tag}?filter=competitive`);
+	const [accountMessage, matchesMessage] = await Promise.all([accountRequest, matchesRequest]);
+	if (accountMessage.statusCode != 200) {
+		throw new Error(`Reply from account API returned status code ${accountMessage.statusCode}`);
 	}
-	const dataAcc = resAcc.data;
+	if (matchesMessage.statusCode != 200) {
+		throw new Error(`Reply from matches API returned status code ${matchesMessage.statusCode}`);
+	}
+	const [accountJson, matchesJson] = await Promise.all([accountMessage.body.json(), matchesMessage.body.json()]);
+	const account = accountJson.data;
+	const puuid = account.puuid;
+	const match = matchesJson.data[0];
 
-	const req = await request(`https://api.henrikdev.xyz/valorant/v3/matches/${dataAcc.region}/${username}/${tag}?filter=competitive`);
-	const res = await req.body.json();
-	if (res.status != 200) {
-		await interaction.editReply({ content: `There was an error while executing this command: ${res.errors[0].message}` });
-		return;
-	}
-	const match = res.data[0];
+	const userTeam = match.players.all_players.find(p => p.puuid == puuid).team;
+	const winningTeam = match.teams.red.rounds_won > match.teams.blue.rounds_won ? 'Red' : match.teams.blue.rounds_won > match.teams.red.rounds_won ? 'Blue' : 'Tie';
 
 	const embed = new EmbedBuilder()
 		.setColor(0xcd7dff)
 		.setAuthor({ name: 'Most Recent Competitive Match' })
 		.setTitle(`${username}#${tag}`)
-		.setThumbnail(dataAcc.card.small)
+		.setThumbnail(account.card.small)
 		.addFields(
-			{ name: 'Map', value: match.metadata.map },
-			{ name: 'Server', value: match.metadata.cluster },
-			// match.teams.red .has_won .rounds_won .rounds_lost
-			{ name: 'Score', value: `${match.teams.red.rounds_won}:${match.teams.blue.rounds_won}` },
-			{ name: '\u200B', value: 'K/D/A/ACS/ADR' },
+			{ name: 'Map', value: match.metadata.map, inline: true },
+			{ name: 'Server', value: match.metadata.cluster, inline: true },
+			{ name: 'Length', value: msToLengthStr(match.metadata.game_length), inline: true },
+			{ name: 'Outcome', value: userTeam == winningTeam ? 'Won' : winningTeam == 'Tie' ? 'Tie' : 'Lost', inline: true },
+			{ name: 'Score', value: `Team A ${match.teams.red.rounds_won} : ${match.teams.blue.rounds_won} Team B`, inline: true },
 		)
-		.setTimestamp();
+		.setFooter({ text: 'Match Date' })
+		.setTimestamp(new Date(match.metadata.game_start * 1000));
 
-	const numRounds = match.metadata.rounds_played;
-	for (const player of match.players.red) {
-		// player.level player.player_card player.player_title player.party_id player.stats (.score, kills, deaths, assists, bodyshots, headshots, legshots)
-		// player.damage_made player.damage_received
-		const stats = player.stats;
-		embed.addFields({ name: `${player.character} - ${player.name}#${player.tag} (${player.currenttier_patched})`, value: `${stats.kills}/${stats.deaths}/${stats.assists}/${parseInt(stats.score / numRounds)}/${parseInt(player.damage_made / numRounds)}` });
-	}
-	embed.addFields({ name: '\u200B', value: '\u200B' });
-	for (const player of match.players.blue) {
-		const stats = player.stats;
-		embed.addFields({ name: `${player.character} - ${player.name}#${player.tag} (${player.currenttier_patched})`, value: `${stats.kills}/${stats.deaths}/${stats.assists}/${parseInt(stats.score / numRounds)}/${parseInt(player.damage_made / numRounds)}` });
-	}
+	const canvasImg = await drawCanvas(match);
+	const imgAttach = new AttachmentBuilder(canvasImg, { name: 'match-details.png' });
+	embed.setImage('attachment://match-details.png');
 
-	await interaction.editReply({ embeds: [embed] });
+	await interaction.editReply({ embeds: [embed], files: [imgAttach] });
 }
